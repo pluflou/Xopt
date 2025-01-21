@@ -25,6 +25,7 @@ runs:
       with:
         activate-environment: ${{ inputs.env_name }}
         miniforge-version: latest
+        use-mamba: true
         channels: conda-forge
     - name: Update Python version in environment.yml
       shell: bash -l {0}

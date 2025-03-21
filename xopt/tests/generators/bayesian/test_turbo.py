@@ -25,7 +25,10 @@ from xopt.resources.testing import TEST_VOCS_BASE, TEST_VOCS_DATA
 
 def sin_function(input_dict):
     x = input_dict["x"]
-    return {"f": -10 * np.exp(-((x - np.pi) ** 2) / 0.01) + 0.5 * np.sin(5 * x)}
+    return {
+        "f": -10 * np.exp(-((x - np.pi) ** 2) / 0.01) + 0.5 * np.sin(5 * x),
+        "c": -1.0,
+    }
 
 
 class TestTurbo(TestCase):
@@ -110,6 +113,89 @@ class TestTurbo(TestCase):
 
         assert np.all(tr[0].numpy() >= test_vocs.bounds[0])
         assert np.all(tr[1].numpy() <= test_vocs.bounds[1])
+
+    @patch.multiple(BayesianGenerator, __abstractmethods__=set())
+    def test_sign_conventions(self):
+        # 2D minimization
+        test_vocs = deepcopy(TEST_VOCS_BASE)
+        gen = BayesianGenerator(vocs=test_vocs)
+        # ensure first update will be a failure
+        data = TEST_VOCS_DATA.copy()
+        data.loc[:, "y1"].iloc[-1] = data["y1"].max()
+        gen.add_data(data)
+        gen.train_model()
+
+        turbo_state = OptimizeTurboController(gen.vocs)
+        turbo_state.update_state(gen)
+        assert turbo_state.success_counter == 0
+        assert turbo_state.failure_counter == 1
+
+        # make next step to better (lower) value
+        test_data = {
+            "x1": [0.1234],
+            "x2": [0.1234],
+            "c1": [1.0],
+            "y1": [TEST_VOCS_DATA["y1"].min() - 1.0],
+        }
+        gen.add_data(pd.DataFrame(test_data))
+        gen.train_model()
+        turbo_state.update_state(gen)
+        assert turbo_state.success_counter == 1
+        assert turbo_state.failure_counter == 0
+
+        # make next step to worse (higher) value
+        test_data = {
+            "x1": [0.2345],
+            "x2": [0.2345],
+            "c1": [1.0],
+            "y1": [TEST_VOCS_DATA["y1"].max() + 1.0],
+        }
+        gen.add_data(pd.DataFrame(test_data))
+        gen.train_model()
+        turbo_state.update_state(gen)
+        assert turbo_state.success_counter == 0
+        assert turbo_state.failure_counter == 1
+
+        # 2D maximization
+        test_vocs = deepcopy(TEST_VOCS_BASE)
+        test_vocs.objectives["y1"] = "MAXIMIZE"
+        gen = BayesianGenerator(vocs=test_vocs)
+        # ensure first update will be a failure
+        data = TEST_VOCS_DATA.copy()
+        data.loc[:, "y1"].iloc[-1] = data["y1"].min()
+        gen.add_data(data)
+        gen.train_model()
+
+        turbo_state = OptimizeTurboController(gen.vocs)
+        turbo_state.update_state(gen)
+        assert turbo_state.success_counter == 0
+        assert turbo_state.failure_counter == 1
+
+        # make next step to better (higher) value
+        test_data = {
+            "x1": [0.1234],
+            "x2": [0.1234],
+            "c1": [1.0],
+            "y1": [TEST_VOCS_DATA["y1"].max() + 1.0],
+        }
+        gen.add_data(pd.DataFrame(test_data))
+        gen.train_model()
+        turbo_state.update_state(gen)
+        assert turbo_state.success_counter == 1
+        assert turbo_state.failure_counter == 0
+
+        # make next step to worse (lower) value
+        test_data = {
+            "x1": [0.2345],
+            "x2": [0.2345],
+            "c1": [1.0],
+            "y1": [TEST_VOCS_DATA["y1"].min() - 1.0],
+        }
+        gen.add_data(pd.DataFrame(test_data))
+        gen.train_model()
+        turbo_state.update_state(gen)
+        assert turbo_state.success_counter == 0
+        assert turbo_state.failure_counter == 1
 
     @patch.multiple(BayesianGenerator, __abstractmethods__=set())
     def test_restrict_data(self):
@@ -342,10 +428,19 @@ class TestTurbo(TestCase):
         assert sturbo.success_counter == 0
         assert sturbo.failure_counter == 1
 
+        # test vocs validation
+        test_vocs = VOCS(
+            variables={"x": [0, 2 * math.pi]},
+            objectives={"f": "MINIMIZE"},
+        )
+        with pytest.raises(ValueError):
+            SafetyTurboController(vocs=test_vocs)
+
     def test_serialization(self):
         vocs = VOCS(
             variables={"x": [0, 2 * math.pi]},
             objectives={"f": "MINIMIZE"},
+            constraints={"c": ["LESS_THAN", 0]},
         )
 
         evaluator = Evaluator(function=sin_function)
@@ -413,6 +508,26 @@ class TestTurbo(TestCase):
                 algorithm=algorithm,
                 turbo_controller=OptimizeTurboController(vocs),
             )
+
+    def test_turbo_restart(self):
+        test_vocs = deepcopy(TEST_VOCS_BASE)
+        test_vocs.variables = {"x1": [0, 1]}
+
+        controllers = [
+            OptimizeTurboController(test_vocs),
+            SafetyTurboController(test_vocs),
+        ]
+        for controller in controllers:
+            controller.length = 5.0
+            controller.success_counter = 10
+            controller.failure_counter = 5
+            controller.center_x = {"x1": 0.5}
+
+            controller.reset()
+            assert controller.length == 0.25
+            assert controller.success_counter == 0
+            assert controller.failure_counter == 0
+            assert controller.center_x is None
 
     @pytest.fixture(scope="module", autouse=True)
     def clean_up(self):

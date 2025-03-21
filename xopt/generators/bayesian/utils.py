@@ -134,7 +134,7 @@ def rectilinear_domain_union(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
     tensor([[0.5, 1.0],
             [2.5, 3.0]])
     """
-    assert A.shape == (2, A.shape[1]), "A should have shape (2, N)"
+    assert A.shape[0] == 2, "A should have shape (2, N)"
     assert A.shape == B.shape, (
         "Shapes of A and B should be the same, current shapes "
         f"are {A.shape} and {B.shape}"
@@ -193,8 +193,7 @@ def validate_turbo_controller_base(value, available_controller_types, info):
 
         if not valid_type:
             raise ValueError(
-                f"turbo controller of type {type(value)} "
-                f"not allowed for this generator"
+                f"turbo controller of type {type(value)} not allowed for this generator"
             )
 
     elif isinstance(value, str):

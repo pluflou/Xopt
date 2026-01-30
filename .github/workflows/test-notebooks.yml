@@ -5,7 +5,6 @@ on:
   push:
     branches-ignore:
       - main
-      - master
 
 jobs:
   test-notebooks:
@@ -131,13 +130,6 @@ jobs:
         with:
           name: results-group-${{ matrix.group }}
           path: results/group-${{ matrix.group }}-results.txt
-
-      - name: Upload logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: notebook-logs-group-${{ matrix.group }}
-          path: /tmp/*/
 
       - name: Minimize uv cache
         run: uv cache prune --ci
